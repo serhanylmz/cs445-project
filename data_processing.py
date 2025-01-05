@@ -41,14 +41,26 @@ class VASTDataset(Dataset):
 
 def load_and_preprocess_data(train_path, test_path, val_size=0.15, random_state=42):
     """Load and preprocess the VAST dataset."""
-    # Load data
-    train_df = pd.read_csv(train_path)
-    test_df = pd.read_csv(test_path)
+    # Load data with different encodings
+    encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
+    
+    def try_read_csv(file_path):
+        for encoding in encodings:
+            try:
+                return pd.read_csv(file_path, encoding=encoding)
+            except UnicodeDecodeError:
+                continue
+        raise ValueError(f"Could not read file {file_path} with any of the attempted encodings: {encodings}")
+
+    print("Loading training data...")
+    train_df = try_read_csv(train_path)
+    print("Loading test data...")
+    test_df = try_read_csv(test_path)
 
     # Convert stance labels to numeric
-    label_map = {'agree': 0, 'disagree': 1, 'neutral': 2}
-    train_df['label'] = train_df['stance'].map(label_map)
-    test_df['label'] = test_df['stance'].map(label_map)
+    label_map = {'FAVOR': 0, 'AGAINST': 1, 'NONE': 2}
+    train_df['label'] = train_df['Stance'].map(label_map)
+    test_df['label'] = test_df['Stance'].map(label_map)
 
     # Split training data into train and validation
     train_data, val_data = train_test_split(
@@ -63,22 +75,22 @@ def load_and_preprocess_data(train_path, test_path, val_size=0.15, random_state=
 def create_data_loaders(train_data, val_data, test_data, tokenizer, batch_size=16):
     """Create PyTorch DataLoaders for train, validation, and test sets."""
     train_dataset = VASTDataset(
-        texts=train_data['text'].values,
-        topics=train_data['topic'].values,
+        texts=train_data['Tweet'].values,
+        topics=train_data['Target'].values,
         labels=train_data['label'].values,
         tokenizer=tokenizer
     )
 
     val_dataset = VASTDataset(
-        texts=val_data['text'].values,
-        topics=val_data['topic'].values,
+        texts=val_data['Tweet'].values,
+        topics=val_data['Target'].values,
         labels=val_data['label'].values,
         tokenizer=tokenizer
     )
 
     test_dataset = VASTDataset(
-        texts=test_data['text'].values,
-        topics=test_data['topic'].values,
+        texts=test_data['Tweet'].values,
+        topics=test_data['Target'].values,
         labels=test_data['label'].values,
         tokenizer=tokenizer
     )
