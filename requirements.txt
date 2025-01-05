@@ -1,0 +1,12 @@
+--find-links https://download.pytorch.org/whl/cu118
+torch
+torchvision 
+torchaudio
+transformers>=4.30.0
+pandas>=1.5.0
+numpy>=1.24.0
+scikit-learn>=1.2.0
+tqdm>=4.65.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+tensorboard>=2.13.0 
