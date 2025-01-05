@@ -160,12 +160,14 @@ class Trainer:
             print(f'Train Loss: {train_loss:.4f}')
             print(f'Val Loss: {val_loss:.4f}')
             print('\nValidation Report:')
-            print(classification_report(
-                [i for i in range(len(val_report)-3)],
-                [i for i in range(len(val_report)-3)],
-                target_names=['agree', 'disagree', 'neutral'],
-                output_dict=False
-            ))
+            print(f"{'':>12} precision  recall  f1-score  support")
+            print(f"{'-'*50}")
+            for label, metrics in val_report.items():
+                if label in ['agree', 'disagree', 'neutral']:
+                    print(f"{label:>12} {metrics['precision']:9.2f} {metrics['recall']:7.2f} {metrics['f1-score']:9.2f} {metrics['support']:8.0f}")
+            print(f"{'-'*50}")
+            print(f"{'macro avg':>12} {val_report['macro avg']['precision']:9.2f} {val_report['macro avg']['recall']:7.2f} {val_report['macro avg']['f1-score']:9.2f} {val_report['macro avg']['support']:8.0f}")
+            print(f"{'weighted avg':>12} {val_report['weighted avg']['precision']:9.2f} {val_report['weighted avg']['recall']:7.2f} {val_report['weighted avg']['f1-score']:9.2f} {val_report['weighted avg']['support']:8.0f}")
         
         self.writer.close()
         return self.best_model_path
@@ -233,11 +235,13 @@ def evaluate_model(trainer, model_path):
     print('\nTest Results:')
     print(f'Test Loss: {test_loss:.4f}')
     print('\nClassification Report:')
-    print(classification_report(
-        [i for i in range(len(test_report)-3)],
-        [i for i in range(len(test_report)-3)],
-        target_names=['agree', 'disagree', 'neutral'],
-        output_dict=False
-    ))
+    print(f"{'':>12} precision  recall  f1-score  support")
+    print(f"{'-'*50}")
+    for label, metrics in test_report.items():
+        if label in ['agree', 'disagree', 'neutral']:
+            print(f"{label:>12} {metrics['precision']:9.2f} {metrics['recall']:7.2f} {metrics['f1-score']:9.2f} {metrics['support']:8.0f}")
+    print(f"{'-'*50}")
+    print(f"{'macro avg':>12} {test_report['macro avg']['precision']:9.2f} {test_report['macro avg']['recall']:7.2f} {test_report['macro avg']['f1-score']:9.2f} {test_report['macro avg']['support']:8.0f}")
+    print(f"{'weighted avg':>12} {test_report['weighted avg']['precision']:9.2f} {test_report['weighted avg']['recall']:7.2f} {test_report['weighted avg']['f1-score']:9.2f} {test_report['weighted avg']['support']:8.0f}")
     
     return test_report, test_conf_matrix, test_pr_curves 
