@@ -2,86 +2,104 @@ import torch
 from transformers import BertTokenizer, AdamW, get_linear_schedule_with_warmup
 import argparse
 import os
+import logging
 from data_processing import load_and_preprocess_data, create_data_loaders
 from model import TGANet, BaselineBERTClassifier
 from train_eval import Trainer, evaluate_model
 
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 def main(args):
-    # Set device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f'Using device: {device}')
+    try:
+        # Set device
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        logger.info(f'Using device: {device}')
 
-    # Set random seeds for reproducibility
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
+        # Set random seeds for reproducibility
+        torch.manual_seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
 
-    # Load tokenizer
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        # Create save directory if it doesn't exist
+        os.makedirs(args.save_dir, exist_ok=True)
 
-    # Load and preprocess data
-    print('Loading and preprocessing data...')
-    train_data, val_data, test_data = load_and_preprocess_data(
-        args.train_path,
-        args.test_path,
-        val_size=args.val_size,
-        random_state=args.seed
-    )
+        # Load tokenizer
+        logger.info('Loading BERT tokenizer...')
+        tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
-    # Create data loaders
-    train_loader, val_loader, test_loader = create_data_loaders(
-        train_data,
-        val_data,
-        test_data,
-        tokenizer,
-        batch_size=args.batch_size
-    )
+        # Load and preprocess data
+        logger.info('Loading and preprocessing data...')
+        train_data, val_data, test_data = load_and_preprocess_data(
+            args.train_path,
+            args.test_path,
+            val_size=args.val_size,
+            random_state=args.seed
+        )
 
-    # Initialize model
-    print('Initializing model...')
-    if args.model_type == 'tganet':
-        model = TGANet(num_labels=3)
-    else:
-        model = BaselineBERTClassifier(num_labels=3)
-    model = model.to(device)
+        # Create data loaders
+        logger.info('Creating data loaders...')
+        train_loader, val_loader, test_loader = create_data_loaders(
+            train_data,
+            val_data,
+            test_data,
+            tokenizer,
+            batch_size=args.batch_size
+        )
 
-    # Initialize optimizer and scheduler
-    optimizer = AdamW(
-        model.parameters(),
-        lr=args.learning_rate,
-        weight_decay=args.weight_decay
-    )
+        # Initialize model
+        logger.info(f'Initializing {args.model_type} model...')
+        if args.model_type == 'tganet':
+            model = TGANet(num_labels=3)
+        else:
+            model = BaselineBERTClassifier(num_labels=3)
+        model = model.to(device)
 
-    total_steps = len(train_loader) * args.num_epochs
-    scheduler = get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=args.warmup_steps,
-        num_training_steps=total_steps
-    )
+        # Initialize optimizer and scheduler
+        optimizer = AdamW(
+            model.parameters(),
+            lr=args.learning_rate,
+            weight_decay=args.weight_decay
+        )
 
-    # Initialize trainer
-    trainer = Trainer(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        test_loader=test_loader,
-        optimizer=optimizer,
-        device=device,
-        num_epochs=args.num_epochs,
-        scheduler=scheduler,
-        save_dir=args.save_dir
-    )
+        total_steps = len(train_loader) * args.num_epochs
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=args.warmup_steps,
+            num_training_steps=total_steps
+        )
 
-    # Train model
-    print('Starting training...')
-    best_model_path = trainer.train()
+        # Initialize trainer
+        trainer = Trainer(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            test_loader=test_loader,
+            optimizer=optimizer,
+            device=device,
+            num_epochs=args.num_epochs,
+            scheduler=scheduler,
+            save_dir=args.save_dir
+        )
 
-    # Evaluate model
-    print('\nEvaluating best model...')
-    test_report, test_conf_matrix, test_pr_curves = evaluate_model(trainer, best_model_path)
+        # Train model
+        logger.info('Starting training...')
+        best_model_path = trainer.train()
 
-    print('\nTraining completed!')
-    print(f'Model checkpoints and evaluation results saved in: {args.save_dir}')
+        # Evaluate model
+        logger.info('\nEvaluating best model...')
+        test_report, test_conf_matrix, test_pr_curves = evaluate_model(trainer, best_model_path)
+
+        logger.info('\nTraining completed!')
+        logger.info(f'Model checkpoints and evaluation results saved in: {args.save_dir}')
+
+    except Exception as e:
+        logger.error(f'An error occurred: {str(e)}', exc_info=True)
+        raise
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Stance Detection Training')

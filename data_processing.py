@@ -4,9 +4,93 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import BertTokenizer
 from sklearn.model_selection import train_test_split
 import numpy as np
+import re
+
+def load_data(file_path):
+    """
+    Load data file with proper handling of delimiters and encoding
+    """
+    try:
+        # First attempt - try comma delimiter with latin1 encoding
+        df = pd.read_csv(
+            file_path,
+            encoding='latin1',
+            engine='python',
+            on_bad_lines='skip'
+        )
+
+        # Check if we got one column with everything
+        if len(df.columns) == 1:
+            print("File appears to be tab-delimited but was read as CSV. Trying again with tabs...")
+
+            # Try again with tab delimiter
+            df = pd.read_csv(
+                file_path,
+                sep='\t',
+                encoding='latin1',
+                engine='python',
+                on_bad_lines='skip'
+            )
+
+        print(f"Successfully loaded {len(df)} rows from {file_path}")
+
+        # Clean up column names (remove any extra quotes or spaces)
+        df.columns = [col.strip().strip('"').strip("'") for col in df.columns]
+
+        # Verify expected columns
+        expected_columns = ['Tweet', 'Target', 'Stance', 'Opinion Towards', 'Sentiment']
+        missing_columns = [col for col in expected_columns if col not in df.columns]
+
+        if missing_columns:
+            raise ValueError(f"Missing expected columns: {missing_columns}")
+
+        return df
+
+    except Exception as e:
+        print(f"Error loading {file_path}: {str(e)}")
+
+        # Try one more time with direct file reading
+        try:
+            print("\nAttempting to read file directly...")
+            with open(file_path, 'r', encoding='latin1') as file:
+                lines = file.readlines()
+
+            # Process headers
+            headers = lines[0].strip().split('\t')
+            headers = [h.strip().strip('"').strip("'") for h in headers]
+
+            # Process data
+            data = []
+            for line in lines[1:]:
+                values = line.strip().split('\t')
+                if len(values) == len(headers):
+                    row = dict(zip(headers, values))
+                    data.append(row)
+
+            df = pd.DataFrame(data)
+            print(f"Successfully loaded {len(df)} rows using direct file reading")
+            return df
+
+        except Exception as e2:
+            print(f"Direct file reading failed: {str(e2)}")
+            raise
+
+def preprocess_text(text):
+    """Clean and preprocess text data."""
+    # Convert to lowercase
+    text = str(text).lower()
+    # Remove URLs
+    text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
+    # Remove user mentions
+    text = re.sub(r'@\w+', '', text)
+    # Remove hashtags symbol (but keep the text)
+    text = re.sub(r'#', '', text)
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 class VASTDataset(Dataset):
-    def __init__(self, texts, topics, labels, tokenizer, max_length=512):
+    def __init__(self, texts, topics, labels, tokenizer, max_length=128):
         self.texts = texts
         self.topics = topics
         self.labels = labels
@@ -17,8 +101,8 @@ class VASTDataset(Dataset):
         return len(self.texts)
 
     def __getitem__(self, idx):
-        text = str(self.texts[idx])
-        topic = str(self.topics[idx])
+        text = preprocess_text(str(self.texts[idx]))
+        topic = preprocess_text(str(self.topics[idx]))
         label = self.labels[idx]
 
         # Encode text and topic together with special [SEP] token
@@ -41,21 +125,10 @@ class VASTDataset(Dataset):
 
 def load_and_preprocess_data(train_path, test_path, val_size=0.15, random_state=42):
     """Load and preprocess the VAST dataset."""
-    # Load data with different encodings
-    encodings = ['utf-8', 'latin1', 'cp1252', 'iso-8859-1']
-    
-    def try_read_csv(file_path):
-        for encoding in encodings:
-            try:
-                return pd.read_csv(file_path, encoding=encoding)
-            except UnicodeDecodeError:
-                continue
-        raise ValueError(f"Could not read file {file_path} with any of the attempted encodings: {encodings}")
-
     print("Loading training data...")
-    train_df = try_read_csv(train_path)
+    train_df = load_data(train_path)
     print("Loading test data...")
-    test_df = try_read_csv(test_path)
+    test_df = load_data(test_path)
 
     # Convert stance labels to numeric
     label_map = {'FAVOR': 0, 'AGAINST': 1, 'NONE': 2}
