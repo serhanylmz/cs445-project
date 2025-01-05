@@ -1,3 +1,3 @@
 *.pyc
-checkpoints/logs
-checkpoints/logs/*
+checkpoints/
+checkpoints/*
