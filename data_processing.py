@@ -7,72 +7,18 @@ import numpy as np
 import re
 
 def load_data(file_path):
-    """
-    Load data file with proper handling of delimiters and encoding
-    """
+    """Load VAST dataset with proper encoding"""
     try:
-        # First attempt - try comma delimiter with latin1 encoding
-        df = pd.read_csv(
-            file_path,
-            encoding='latin1',
-            engine='python',
-            on_bad_lines='skip'
-        )
-
-        # Check if we got one column with everything
-        if len(df.columns) == 1:
-            print("File appears to be tab-delimited but was read as CSV. Trying again with tabs...")
-
-            # Try again with tab delimiter
-            df = pd.read_csv(
-                file_path,
-                sep='\t',
-                encoding='latin1',
-                engine='python',
-                on_bad_lines='skip'
-            )
-
+        df = pd.read_csv(file_path, encoding='utf-8')
         print(f"Successfully loaded {len(df)} rows from {file_path}")
-
-        # Clean up column names (remove any extra quotes or spaces)
-        df.columns = [col.strip().strip('"').strip("'") for col in df.columns]
-
-        # Verify expected columns
-        expected_columns = ['Tweet', 'Target', 'Stance', 'Opinion Towards', 'Sentiment']
-        missing_columns = [col for col in expected_columns if col not in df.columns]
-
-        if missing_columns:
-            raise ValueError(f"Missing expected columns: {missing_columns}")
-
         return df
-
-    except Exception as e:
-        print(f"Error loading {file_path}: {str(e)}")
-
-        # Try one more time with direct file reading
+    except UnicodeDecodeError:
         try:
-            print("\nAttempting to read file directly...")
-            with open(file_path, 'r', encoding='latin1') as file:
-                lines = file.readlines()
-
-            # Process headers
-            headers = lines[0].strip().split('\t')
-            headers = [h.strip().strip('"').strip("'") for h in headers]
-
-            # Process data
-            data = []
-            for line in lines[1:]:
-                values = line.strip().split('\t')
-                if len(values) == len(headers):
-                    row = dict(zip(headers, values))
-                    data.append(row)
-
-            df = pd.DataFrame(data)
-            print(f"Successfully loaded {len(df)} rows using direct file reading")
+            df = pd.read_csv(file_path, encoding='latin1')
+            print(f"Successfully loaded {len(df)} rows from {file_path}")
             return df
-
-        except Exception as e2:
-            print(f"Direct file reading failed: {str(e2)}")
+        except Exception as e:
+            print(f"Error loading {file_path}: {str(e)}")
             raise
 
 def preprocess_text(text):
@@ -88,6 +34,23 @@ def preprocess_text(text):
     # Remove extra whitespace
     text = re.sub(r'\s+', ' ', text).strip()
     return text
+
+class SimpleDataset(Dataset):
+    """Dataset class for non-tokenized data (e.g., for majority class baseline)"""
+    def __init__(self, texts, topics, labels):
+        self.texts = texts
+        self.topics = topics
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.texts)
+
+    def __getitem__(self, idx):
+        return {
+            'texts': self.texts[idx],
+            'topics': self.topics[idx],
+            'labels': torch.tensor(self.labels[idx], dtype=torch.long)
+        }
 
 class VASTDataset(Dataset):
     def __init__(self, texts, topics, labels, tokenizer, max_length=128):
@@ -105,15 +68,16 @@ class VASTDataset(Dataset):
         topic = preprocess_text(str(self.topics[idx]))
         label = self.labels[idx]
 
-        # Encode text and topic together with special [SEP] token
-        encoding = self.tokenizer.encode_plus(
-            text,
-            topic,
+        # Combine text and topic with a separator
+        combined_text = f"{text} [SEP] {topic}"
+        
+        # Encode the combined text as a single sequence
+        encoding = self.tokenizer(
+            combined_text,
             add_special_tokens=True,
             max_length=self.max_length,
             padding='max_length',
             truncation=True,
-            return_attention_mask=True,
             return_tensors='pt'
         )
 
@@ -130,10 +94,9 @@ def load_and_preprocess_data(train_path, test_path, val_size=0.15, random_state=
     print("Loading test data...")
     test_df = load_data(test_path)
 
-    # Convert stance labels to numeric
-    label_map = {'FAVOR': 0, 'AGAINST': 1, 'NONE': 2}
-    train_df['label'] = train_df['Stance'].map(label_map)
-    test_df['label'] = test_df['Stance'].map(label_map)
+    # Labels are already numeric in VAST dataset
+    train_df['label'] = train_df['label'].astype(int)
+    test_df['label'] = test_df['label'].astype(int)
 
     # Split training data into train and validation
     train_data, val_data = train_test_split(
@@ -145,28 +108,50 @@ def load_and_preprocess_data(train_path, test_path, val_size=0.15, random_state=
 
     return train_data, val_data, test_df
 
-def create_data_loaders(train_data, val_data, test_data, tokenizer, batch_size=16):
+def create_data_loaders(train_data, val_data, test_data, tokenizer=None, batch_size=16):
     """Create PyTorch DataLoaders for train, validation, and test sets."""
-    train_dataset = VASTDataset(
-        texts=train_data['Tweet'].values,
-        topics=train_data['Target'].values,
-        labels=train_data['label'].values,
-        tokenizer=tokenizer
-    )
+    
+    if tokenizer is not None:
+        # Use VASTDataset with tokenizer
+        train_dataset = VASTDataset(
+            texts=train_data['post'].values,
+            topics=train_data['new_topic'].values,
+            labels=train_data['label'].values,
+            tokenizer=tokenizer
+        )
 
-    val_dataset = VASTDataset(
-        texts=val_data['Tweet'].values,
-        topics=val_data['Target'].values,
-        labels=val_data['label'].values,
-        tokenizer=tokenizer
-    )
+        val_dataset = VASTDataset(
+            texts=val_data['post'].values,
+            topics=val_data['new_topic'].values,
+            labels=val_data['label'].values,
+            tokenizer=tokenizer
+        )
 
-    test_dataset = VASTDataset(
-        texts=test_data['Tweet'].values,
-        topics=test_data['Target'].values,
-        labels=test_data['label'].values,
-        tokenizer=tokenizer
-    )
+        test_dataset = VASTDataset(
+            texts=test_data['post'].values,
+            topics=test_data['new_topic'].values,
+            labels=test_data['label'].values,
+            tokenizer=tokenizer
+        )
+    else:
+        # Use SimpleDataset without tokenizer
+        train_dataset = SimpleDataset(
+            texts=train_data['post'].values,
+            topics=train_data['new_topic'].values,
+            labels=train_data['label'].values
+        )
+
+        val_dataset = SimpleDataset(
+            texts=val_data['post'].values,
+            topics=val_data['new_topic'].values,
+            labels=val_data['label'].values
+        )
+
+        test_dataset = SimpleDataset(
+            texts=test_data['post'].values,
+            topics=test_data['new_topic'].values,
+            labels=test_data['label'].values
+        )
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size)

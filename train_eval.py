@@ -154,6 +154,16 @@ class Trainer:
             # Save best model
             if val_report['macro avg']['f1-score'] > self.best_val_f1:
                 self.best_val_f1 = val_report['macro avg']['f1-score']
+                # Save full checkpoint as .tar
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler else None,
+                    'best_val_f1': self.best_val_f1,
+                    'loss': val_loss
+                }, os.path.join(self.save_dir, 'best_model.tar'))
+                # Also save just the model state dict as .pt for compatibility
                 torch.save(self.model.state_dict(), self.best_model_path)
                 print(f'New best model saved with F1: {self.best_val_f1:.4f}')
             
@@ -208,7 +218,11 @@ def evaluate_model(trainer, model_path):
     """Evaluate a trained model and generate comprehensive reports."""
     # Load best model
     model = trainer.model
-    model.load_state_dict(torch.load(model_path))
+    if model_path.endswith('.tar'):
+        checkpoint = torch.load(model_path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+    else:  # .pt file
+        model.load_state_dict(torch.load(model_path))
     model.eval()
     
     # Evaluate on test set
